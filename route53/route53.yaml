@@ -1,0 +1,34 @@
+---
+- hosts: localhost
+  vars:
+    basezone: "test.com"
+  tasks:
+    - name: Create new Zone
+      community.aws.route53_zone:
+        zone: "{{ prefix | default(lookup('env', 'USER')) }}.{{ basezone }}"
+        comment: "Onboarding for {{ user | default(lookup('env', 'USER')) }}"
+        tags:
+          Created_by: "{{ user | default(lookup('env', 'USER')) }}"
+        state: "{{ state | default('present') }}"
+      register: newzone
+
+    - name: Get new zone NS records
+      community.aws.route53_info:
+        type: NS
+        query: record_sets
+        hosted_zone_id: "{{ newzone.zone_id }}"
+        start_record_name: "{{ prefix | default(lookup('env', 'USER')) }}.{{ basezone }}"
+      register: dns_records
+      when: newzone.zone_id is defined and newzone.zone_id
+
+    - name: Create NS records in base zone
+      community.aws.route53:
+        zone: "{{ basezone }}"
+        record: "{{ prefix | default(lookup('env','USER')) }}.{{ basezone }}"
+        type: NS
+        ttl: 300
+        value: "{{ dns_records | json_query(filter)}}"
+        state: "{{ state | default('present') }}"
+      vars:
+        filter: "ResourceRecordSets[?Type == `NS`].ResourceRecords[].Value"
+      when: dns_records.ResourceRecordSets is defined
